@@ -1,0 +1,156 @@
+module read_control #(
+    parameter MEM_SIZE = 1024,
+    parameter ADDR_WIDTH = $clog2(MEM_SIZE),
+    parameter BASE_ADDR = 0,
+    parameter DATA_WIDTH = 32
+) (
+    input clk,
+    input reset,
+
+    input start,
+    input AES_ready,
+
+    input ar_ready,
+    output reg ar_valid,
+    output reg [ADDR_WIDTH-1:0] ar_addr,
+
+    input [31:0] r_data,
+    input r_valid,
+    output reg r_ready,
+    input r_resp,
+
+    output reg [127:0] AES_in,
+    output reg [ADDR_WIDTH-1:0] AES_addr_out,
+    output reg AES_in_valid
+);
+
+parameter OKAY =2'b0,
+SLVERR = 2'b10;
+    parameter IDLE = 2'd0,
+              READ = 2'd1,
+              WAIT = 2'd2;
+
+    reg [1:0] state;
+    reg [ADDR_WIDTH-1:0] prev_addr;
+    reg [1:0] count;
+    reg [DATA_WIDTH-1:0] mem_array [3:0];
+    reg [2:0] addr_count;
+
+    always @(posedge clk or negedge reset) begin
+        if (!reset) begin
+            state <= IDLE;
+        end else begin
+            case (state)
+                IDLE: begin
+                    if (start) 
+                        state <= READ;
+                end
+                READ: begin
+                    if (count == 3 && r_valid && r_ready) begin
+                        if (!AES_ready) 
+                            state <= WAIT;
+                    end
+                end    
+                WAIT: begin
+                    if (AES_ready) 
+                        state <= READ;
+                end
+                default: state <= IDLE;
+            endcase
+        end
+    end
+
+    always @(posedge clk or negedge reset) begin
+        if (!reset) begin
+            count <= 2'b0;
+            ar_addr <= BASE_ADDR;
+            ar_valid <= 1'b0;
+            r_ready <= 1'b0;
+            addr_count <= 3'd0;
+            AES_in_valid <= 1'b0;
+            prev_addr <= BASE_ADDR;
+            AES_in <= 128'd0;
+            AES_addr_out <= BASE_ADDR;
+        end else begin
+            case (state)
+                IDLE: begin
+            count <= 2'b0;
+            ar_addr <= BASE_ADDR;
+            ar_valid <= 1'b0;
+            r_ready <= 1'b0;
+            addr_count <= 3'd0;
+            AES_in_valid <= 1'b0;
+            prev_addr <= BASE_ADDR;
+            AES_in <= 128'd0;
+            AES_addr_out <= BASE_ADDR;
+                    if (start) begin
+                        count <= 2'b0;
+                        addr_count <= 3'd0;
+                        ar_valid <= 1'b1;
+                        r_ready <= 1'b1;
+                        ar_addr <= BASE_ADDR;
+                        prev_addr <= BASE_ADDR;
+                    end
+                end
+
+                READ: begin
+                    if (addr_count < 4) begin
+                        ar_valid <= 1'b1;
+                    end else begin
+                        ar_valid <= 1'b0;
+                    end
+                    if(r_resp == SLVERR)
+                    begin
+                        r_ready <= 1'b0;
+                    end
+                    else
+                        r_ready <= 1'b1;
+                    if (ar_valid && ar_ready) begin
+                        ar_addr <= ar_addr + 4;
+                        addr_count <= addr_count + 1;
+                    end
+
+                    if (r_valid && r_ready) begin
+                        mem_array[count] <= r_data;
+                        if (count == 3) begin
+                            if (AES_ready) begin
+                                AES_in <= {mem_array[0], mem_array[1], mem_array[2],r_data};
+                                AES_addr_out <= prev_addr;
+                                prev_addr <= ar_addr;
+                                AES_in_valid <= 1'b1;
+                                count <= 2'b0;
+                                addr_count <= 3'd0;
+                            end else begin
+                                AES_in_valid <= 1'b0;
+                                ar_valid <= 1'b0;
+                                r_ready <= 1'b0;
+                            end
+                        end else begin
+                            count <= count + 1;
+                            AES_in_valid <= 1'b0;
+                        end
+                    end else begin
+                        AES_in_valid <= 1'b0;
+                    end
+                end
+
+                WAIT: begin
+                    if (AES_ready) begin
+                        AES_in <= {mem_array[0], mem_array[1], mem_array[2], mem_array[3]};
+                        AES_addr_out <= prev_addr;
+                        prev_addr <= ar_addr;
+                        AES_in_valid <= 1'b1;
+                        count <= 2'b0;
+                        addr_count <= 3'd0;
+                        ar_valid <= 1'b1;
+                        r_ready <= 1'b1;
+                    end else begin
+                        ar_valid <= 1'b0;
+                        r_ready <= 1'b0;
+                        AES_in_valid <= 1'b0;
+                    end
+                end
+            endcase
+        end
+    end
+endmodule
