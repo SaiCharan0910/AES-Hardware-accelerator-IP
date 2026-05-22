@@ -10,14 +10,12 @@ module aes_top #(
     input  wire                              aclk,
     input  wire                              aresetn,
 
-    // =========================================================
-    // AXI4-Lite Slave Interface (CPU Control & Status)
-    // =========================================================
-    // Write Address Channel (Control Reg)
+
+
     input  wire [C_S_AXI_ADDR_WIDTH-1:0]     s_axi_awaddr,
     input  wire                              s_axi_awvalid,
     output wire                              s_axi_awready,
-    // Write Data Channel (Control Reg)
+
     input  wire [C_S_AXI_DATA_WIDTH-1:0]     s_axi_wdata,
     input  wire [(C_S_AXI_DATA_WIDTH/8)-1:0] s_axi_wstrb,
     input  wire                              s_axi_wvalid,
@@ -37,10 +35,8 @@ module aes_top #(
     output wire                              s_axi_rvalid,
     input  wire                              s_axi_rready,
 
-    // =========================================================
-    // AXI4 Master Interface (BRAM / Memory Access)
-    // =========================================================
-    // Read Address Channel
+
+
     output wire [C_M_AXI_ADDR_WIDTH-1:0]     m_axi_araddr,
     output wire                              m_axi_arvalid,
     input  wire                              m_axi_arready,
@@ -64,47 +60,37 @@ module aes_top #(
     input  wire                              m_axi_bvalid,
     output wire                              m_axi_bready,
 
-    // =========================================================
-    // Auxiliary IP Inputs (Key & Config)
-    // =========================================================
+
     input  wire [127:0]                      aes_key,
     input  wire                              aes_key_valid,
-    input  wire [6:0]                        num_blocks_to_process,
+    input  wire [15:0]                       num_blocks_to_process,
     
     // Extra Outputs for Debug
     output wire                              aes_key_ready
 );
 
-    // =========================================================
-    // Internal Wiring
-    // =========================================================
-    // Control / Status wires
     wire         start_sig;
     wire         stop_sig;
     wire         status_done;
     wire         status_busy;
     wire         status_idle;
     
-    // Read Control to AES Core wires
+
     wire [127:0] aes_in_data;
     wire [C_M_AXI_ADDR_WIDTH-1:0] aes_in_addr;
     wire         aes_in_valid;
     wire         aes_core_ready;
 
-    // AES Core to Write Control wires
+
     wire [127:0] aes_out_data;
     wire [C_M_AXI_ADDR_WIDTH-1:0] aes_out_addr;
     wire         aes_out_done;
     
-    // Write Control back to AES core / Status wires
+  
     wire         write_buffer_empty;
     wire         write_done_all;
 
-    // =========================================================
-    // Instantiations
-    // =========================================================
 
-    // 1. AXI4-Lite Control Register (CPU writes commands here)
     axi_ctrl_reg #(
         .AXI_DATA_WIDTH(C_S_AXI_DATA_WIDTH),
         .AXI_ADDR_WIDTH(C_S_AXI_ADDR_WIDTH)
@@ -125,14 +111,14 @@ module aes_top #(
         .stop_sig      (stop_sig)
     );
 
-    // 2. AXI4-Lite Status Register (CPU reads status from here)
+
     status_reg #(
         .AXI_DATA_WIDTH(C_S_AXI_DATA_WIDTH),
         .AXI_ADDR_WIDTH(C_S_AXI_ADDR_WIDTH)
     ) stat_inst (
         .clk           (aclk),
         .aresetn       (aresetn),
-        .done          (write_done_all), // High when all memory writes finish
+        .done          (write_done_all), 
         .busy          (status_busy),
         .idle          (status_idle),
         .ar_addr       (s_axi_araddr),
@@ -144,7 +130,7 @@ module aes_top #(
         .r_resp        (s_axi_rresp)
     );
 
-    // 3. Memory Read Controller (Fetches Plaintext via AXI Master)
+
     read_control #(
         .MEM_SIZE(MEM_SIZE),
         .ADDR_WIDTH(C_M_AXI_ADDR_WIDTH),
@@ -153,15 +139,17 @@ module aes_top #(
     ) rd_ctrl_inst (
         .clk           (aclk),
         .reset         (aresetn),
+        .stop          (stop_sig),
         .start         (start_sig),
         .AES_ready     (aes_core_ready),
+        .num_blocks_to_process(num_blocks_to_process),
         .ar_ready      (m_axi_arready),
         .ar_valid      (m_axi_arvalid),
         .ar_addr       (m_axi_araddr),
         .r_data        (m_axi_rdata),
         .r_valid       (m_axi_rvalid),
         .r_ready       (m_axi_rready),
-        .r_resp        (m_axi_rresp[1]), // Expecting 1-bit SLVERR indicator mapped from resp
+        .r_resp        (m_axi_rresp),
         .AES_in        (aes_in_data),
         .AES_addr_out  (aes_in_addr),
         .AES_in_valid  (aes_in_valid)
@@ -175,6 +163,7 @@ module aes_top #(
     ) aes_core_inst (
         .clk           (aclk),
         .reset         (aresetn),
+        .stop           (stop_sig),
         .input_valid   (aes_in_valid),
         .empty         (write_buffer_empty),
         .key_valid     (aes_key_valid),
@@ -197,6 +186,7 @@ module aes_top #(
     ) wr_ctrl_inst (
         .clk                   (aclk),
         .reset                 (aresetn),
+        .stop                  (stop_sig),
         .AES_out               (aes_out_data),
         .AES_addr_out          (aes_out_addr),
         .done                  (aes_out_done),
@@ -207,7 +197,7 @@ module aes_top #(
         .w_valid               (m_axi_wvalid),
         .w_ready               (m_axi_wready),
         .w_strb                (m_axi_wstrb),
-        .b_resp                (m_axi_bresp[1]), // Only mapping the error bit
+        .b_resp                (m_axi_bresp), // Only mapping the error bit
         .b_resp_ready          (m_axi_bready),
         .b_resp_valid          (m_axi_bvalid),
         .num_blocks_to_process (num_blocks_to_process),

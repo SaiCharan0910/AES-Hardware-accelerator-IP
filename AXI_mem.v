@@ -14,7 +14,7 @@ module slave_mem #(
     output reg [AXI_DATA_WIDTH-1:0]r_data,
     output reg r_valid,
     input r_ready,
-    output reg r_resp,
+    output reg[1:0] r_resp,
 
     input [AXI_ADDR_WIDTH-1:0]aw_addr,
     input aw_valid,
@@ -25,16 +25,16 @@ module slave_mem #(
     output w_ready,
     input wire [AXI_DATA_WIDTH/8 -1:0]w_strb,
 
-    output reg b_resp,
+    output reg [1:0]b_resp,
     input b_resp_ready,
     output reg b_resp_valid
 );
-    parameter OKAY =1'b0,
-              SLVERR =1'b1;
+    parameter OKAY =2'b00,
+              SLVERR =2'b10;
   
     reg [7:0] mem [MEM_SIZE-1:0];
 
-    // read adress handshake
+
     reg ar_hs_done;
     assign ar_ready = (!r_valid)||(r_ready); // adress and data handshake overlap for latency match
     always@(posedge clk or negedge reset)

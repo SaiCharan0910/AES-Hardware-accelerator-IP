@@ -1,11 +1,13 @@
 module write_control #(
     parameter MEM_SIZE = 1024,
     parameter ADDR_WIDTH = $clog2(MEM_SIZE), 
-    parameter AXI_DATA_WIDTH = 32
+    parameter AXI_DATA_WIDTH = 32,
+    parameter BLOCK_WIDTH = 16
 )
 (
     input clk,
     input reset,
+    input stop,
 
     input [127:0] AES_out,
     input [ADDR_WIDTH-1:0] AES_addr_out,
@@ -20,10 +22,10 @@ module write_control #(
     input w_ready,
     output [AXI_DATA_WIDTH/8 -1:0] w_strb,
 
-    input b_resp,
+    input [1:0]b_resp,
     output b_resp_ready,
     input b_resp_valid,
-    input [6:0]num_blocks_to_process,
+    input [BLOCK_WIDTH-1:0]num_blocks_to_process,
 
     output empty,
     output reg done_all
@@ -31,6 +33,10 @@ module write_control #(
 
     localparam IDLE  = 1'b0;
     localparam WRITE = 1'b1;
+
+    parameter OKAY=2'b00,
+              SLVERR = 2'b10;
+
 
     reg state;
     reg [2:0] addr_count;
@@ -60,7 +66,12 @@ module write_control #(
             addr_count  <= 0;
             aw_addr_reg <= 0;
             w_data_q[0] <= 0; w_data_q[1] <= 0; w_data_q[2] <= 0; w_data_q[3] <= 0;
-        end else begin
+        end
+        else if(stop)
+        begin
+            state <= IDLE;
+        end
+         else begin
             case(state)
                 IDLE: begin
                     if(done) begin
@@ -97,7 +108,7 @@ module write_control #(
                                 w_data_q[2] <= AES_out[63:32];
                                 w_data_q[3] <= AES_out[31:0];
                                 
-                                aw_addr_reg <=(aw_ready&& aw_valid)?AES_addr_out+4:AES_addr_out; 
+                                aw_addr_reg <= (aw_ready&& aw_valid)?AES_addr_out+4:AES_addr_out; 
                                 addr_count  <= (aw_ready&& aw_valid)?1:0; 
                                 w_count     <= (w_ready && w_valid)?1:0; 
                                 
@@ -119,31 +130,32 @@ module write_control #(
         end
     end
 
-reg [6:0] block_counter;
+
+
+reg [BLOCK_WIDTH-1:0] block_counter;
 
 always @(posedge clk or negedge reset) begin
     if (!reset) begin
-        block_counter <= 7'd0;
+        block_counter <= 0;
         done_all      <= 1'b0;
-    end else begin
-        if (state == IDLE) begin
-            block_counter <= 7'd0;
-            done_all      <= 1'b0;
-        end 
-        else if (b_count == 3) begin
+    end 
+    else if (stop) begin
+        block_counter <= 0;
+        done_all      <= 1'b0;
+    end 
+    else begin
+        if (state == WRITE && b_resp_ready && b_resp_valid && b_count == 3) begin
+            
             if (block_counter == (num_blocks_to_process - 1)) begin
                 done_all      <= 1'b1;
-                block_counter <= 7'd0;
+                block_counter <= 0; 
             end else begin
                 block_counter <= block_counter + 1;
-                done_all      <= 1'b0;
             end
+            
         end
     end
 end
-
-
-
 
 
 endmodule

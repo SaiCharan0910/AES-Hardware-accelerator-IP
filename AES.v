@@ -221,12 +221,13 @@ endmodule
 module AES #(
     parameter DATA_WIDTH = 128,
     parameter KEY_WIDTH = 128,
-    parameter AXI_ADDR_WIDTH = 10
+    parameter AXI_ADDR_WIDTH = 16
 )
 (
     input clk,
     input reset,
     input input_valid,// from the read buffer
+    input stop,
     input empty, // from the write buffer
     input key_valid,
     input [DATA_WIDTH-1:0] Plain_Text,
@@ -240,7 +241,7 @@ module AES #(
 );
     reg [127:0] Round_Text [0:9];
     reg [127:0] R_key  [0:9];
-    reg [AXI_ADDR_WIDTH-1:0] pipe_addr [0:9]; 
+    reg [AXI_ADDR_WIDTH-1:0] stage_addr [0:9]; 
     reg [10:0]  stage_valid;
     wire pipeline_stall; // for backpressure handling
 
@@ -293,104 +294,113 @@ module AES #(
         end
         end
     end
-
+integer i;
     always @(posedge clk or negedge reset) begin
         if (!reset) begin
             stage_valid <= 11'b0;
             Cipher_Text <= 128'b0;
             Addr_out    <= 0;
-        end else begin
+            for(i =0 ;i < 10;i=i+1)
+            Round_Text[i] <=0;
+        end
+        else if(stop)
+        begin
+            stage_valid <= 11'b0; // for software abort.
+        end
+         else begin
             if(!pipeline_stall)
+            begin
             stage_valid[0] <= input_valid;
             if (input_valid) begin
                 Round_Text[0] <= Plain_Text ^ Key_reg;
                 R_key[0]  <= Key_reg;
-                pipe_addr[0] <= Addr_in;
+                stage_addr[0] <= Addr_in;
             end
 
-                      if(!pipeline_stall)
+                      
             stage_valid[1] <= stage_valid[0];
             if (stage_valid[0]) begin
                 Round_Text[1] <= round_out[1];
                 R_key[1]  <= round_key[1];
-                pipe_addr[1] <= pipe_addr[0];
+                stage_addr[1] <= stage_addr[0];
             end
 
-                      if(!pipeline_stall)
+                      
             stage_valid[2] <= stage_valid[1];
             if (stage_valid[1]) begin
                 Round_Text[2] <= round_out[2];
                 R_key[2]  <= round_key[2];
-                pipe_addr[2] <= pipe_addr[1];
+                stage_addr[2] <= stage_addr[1];
             end
 
-                      if(!pipeline_stall)
+                      
             stage_valid[3] <= stage_valid[2];
             if (stage_valid[2]) begin
                 Round_Text[3] <= round_out[3];
                 R_key[3]  <= round_key[3];
-                pipe_addr[3] <= pipe_addr[2];
+                stage_addr[3] <= stage_addr[2];
             end
 
-                      if(!pipeline_stall)
+                      
             stage_valid[4] <= stage_valid[3];
             if (stage_valid[3]) begin
                 Round_Text[4] <= round_out[4];
                 R_key[4]  <= round_key[4];
-                pipe_addr[4] <= pipe_addr[3];
+                stage_addr[4] <= stage_addr[3];
             end
 
-                      if(!pipeline_stall)
+                      
             stage_valid[5] <= stage_valid[4];
             if (stage_valid[4]) begin
                 Round_Text[5] <= round_out[5];
                 R_key[5]  <= round_key[5];
-                pipe_addr[5] <= pipe_addr[4];
+                stage_addr[5] <= stage_addr[4];
             end
 
-                      if(!pipeline_stall)
+                      
             stage_valid[6] <= stage_valid[5];
             if (stage_valid[5]) begin
                 Round_Text[6] <= round_out[6];
                 R_key[6]  <= round_key[6];
-                pipe_addr[6] <= pipe_addr[5];
+                stage_addr[6] <= stage_addr[5];
             end
 
-                      if(!pipeline_stall)
+                      
             stage_valid[7] <= stage_valid[6];
             if (stage_valid[6]) begin
                 Round_Text[7] <= round_out[7];
                 R_key[7]  <= round_key[7];
-                pipe_addr[7] <= pipe_addr[6];
+                stage_addr[7] <= stage_addr[6];
             end
 
-                      if(!pipeline_stall)
+                      
             stage_valid[8] <= stage_valid[7];
             if (stage_valid[7]) begin
                 Round_Text[8] <= round_out[8];
                 R_key[8]  <= round_key[8];
-                pipe_addr[8] <= pipe_addr[7];
+                stage_addr[8] <= stage_addr[7];
             end
 
-                      if(!pipeline_stall)
+                      
             stage_valid[9] <= stage_valid[8];
             if (stage_valid[8]) begin
                 Round_Text[9] <= round_out[9];
                 R_key[9]  <= round_key[9];
-                pipe_addr[9] <= pipe_addr[8];
+                stage_addr[9] <= stage_addr[8];
             end
-            if(!pipeline_stall)
+            
             stage_valid[10] <= stage_valid[9];
             if (stage_valid[9]) begin
                 Cipher_Text <= round_out[10];
-                Addr_out    <= pipe_addr[9]; 
+                Addr_out    <= stage_addr[9]; 
             end
         end
-    end
+         end 
+         end
 
-    assign Done = stage_valid[10];
     assign Busy = |stage_valid;
     assign Idle = !Busy;
+    assign Done = stage_valid[10];
 
     assign AES_ready = (!pipeline_stall);
     assign pipeline_stall = (Done && (~(empty))) || (!Key_reg_valid);
